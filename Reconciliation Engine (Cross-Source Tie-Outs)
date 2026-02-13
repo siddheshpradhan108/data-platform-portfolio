@@ -1,0 +1,99 @@
+# Reconciliation Engine
+
+A configurable tie-out tool to reconcile two datasets:
+- row counts
+- key coverage (missing/extra keys)
+- sum comparisons with tolerances
+- duplicate key detection
+- exception outputs + HTML summary
+
+
+import os
+import pandas as pd
+import numpy as np
+
+def main():
+    os.makedirs("outputs", exist_ok=True)
+    rng = np.random.default_rng(11)
+
+    base = pd.DataFrame({
+        "txn_id": range(1, 3001),
+        "amount": np.round(rng.normal(100, 25, 3000), 2),
+    })
+
+    a = base.copy()
+    b = base.copy()
+
+    # introduce mismatches
+    b.loc[b.sample(30, random_state=1).index, "amount"] *= 1.05
+    b = b.drop(b.sample(20, random_state=2).index)
+    b = pd.concat([b, pd.DataFrame({"txn_id": [999999], "amount": [123.45]})], ignore_index=True)
+
+    a.to_csv("outputs/source_a.csv", index=False)
+    b.to_csv("outputs/source_b.csv", index=False)
+    print("Wrote outputs/source_a.csv and outputs/source_b.csv")
+
+if __name__ == "__main__":
+    main()
+
+
+import argparse
+import os
+import pandas as pd
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--left", required=True)
+    p.add_argument("--right", required=True)
+    p.add_argument("--key", required=True)
+    p.add_argument("--sum", required=True)
+    p.add_argument("--tolerance", type=float, default=0.0)
+    args = p.parse_args()
+
+    os.makedirs("outputs", exist_ok=True)
+
+    l = pd.read_csv(args.left)
+    r = pd.read_csv(args.right)
+
+    key = args.key
+    col = args.sum
+
+    report = {}
+
+    report["left_rows"] = int(len(l))
+    report["right_rows"] = int(len(r))
+
+    dup_l = l[l.duplicated(key, keep=False)]
+    dup_r = r[r.duplicated(key, keep=False)]
+    report["left_duplicate_keys"] = int(len(dup_l))
+    report["right_duplicate_keys"] = int(len(dup_r))
+
+    l_keys = set(l[key].tolist())
+    r_keys = set(r[key].tolist())
+    missing_in_r = sorted(list(l_keys - r_keys))
+    extra_in_r = sorted(list(r_keys - l_keys))
+
+    report["missing_in_right"] = len(missing_in_r)
+    report["extra_in_right"] = len(extra_in_r)
+
+    sum_l = float(l[col].sum())
+    sum_r = float(r[col].sum())
+    diff = abs(sum_l - sum_r)
+
+    report["sum_left"] = sum_l
+    report["sum_right"] = sum_r
+    report["sum_diff_abs"] = diff
+    report["sum_within_tolerance"] = diff <= args.tolerance
+
+    # exception files
+    if missing_in_r:
+        l[l[key].isin(missing_in_r)].to_csv("outputs/missing_in_right.csv", index=False)
+    if extra_in_r:
+        r[r[key].isin(extra_in_r)].to_csv("outputs/extra_in_right.csv", index=False)
+
+    pd.DataFrame([report]).to_csv("outputs/recon_summary.csv", index=False)
+    print("Reconciliation summary written to outputs/recon_summary.csv")
+    print(report)
+
+if __name__ == "__main__":
+    main()
