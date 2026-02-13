@@ -11,13 +11,6 @@ Simulates a healthcare/finance regulatory reporting workflow:
 - Silver: cleaned + conformed tables
 - Gold: report-ready facts + dimensions
 
-## Run
-```bash
-pip install -r requirements.txt
-python src/generate_data.py
-python src/pipeline.py
-python src/validate.py
-
 import os
 import pandas as pd
 import numpy as np
