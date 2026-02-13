@@ -1,0 +1,61 @@
+# ETL Factory (Config-driven)
+
+Demonstrates a scalable pattern to create new pipelines via configuration:
+- sources
+- transformations
+- validations
+- outputs
+
+Currently implemented with Pandas for easy local runs; structure mirrors PySpark/Databricks patterns.
+
+
+import argparse
+import os
+import yaml
+import pandas as pd
+
+def validate(df, rules):
+    failures = []
+    for rule in rules or []:
+        if rule["type"] == "not_null":
+            col = rule["column"]
+            nulls = int(df[col].isna().sum())
+            if nulls > 0:
+                failures.append(f"{col} has {nulls} nulls")
+    return failures
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", required=True)
+    args = p.parse_args()
+
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f)
+
+    os.makedirs("outputs", exist_ok=True)
+
+    # Generate demo input if not exists
+    if not os.path.exists(cfg["input"]["path"]):
+        demo = pd.DataFrame({
+            "state": ["NY", "NY", "NJ", "PA"],
+            "plan": ["MEDICAID", "COMMERCIAL", "MEDICAID", "MEDICARE_PD"],
+            "paid_amount": [120.0, 80.0, 55.5, 200.0]
+        })
+        demo.to_csv(cfg["input"]["path"], index=False)
+
+    df = pd.read_csv(cfg["input"]["path"])
+
+    gb = cfg["transform"]["group_by"]
+    sum_col = cfg["transform"]["sum"]
+
+    out = df.groupby(gb, as_index=False).agg(**{f"sum_{sum_col}": (sum_col, "sum")})
+
+    failures = validate(out, cfg.get("validations"))
+    if failures:
+        raise SystemExit("Validation failed: " + "; ".join(failures))
+
+    out.to_csv(cfg["output"]["path"], index=False)
+    print("Wrote:", cfg["output"]["path"])
+
+if __name__ == "__main__":
+    main()
