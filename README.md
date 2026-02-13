@@ -8,7 +8,6 @@ This portfolio demonstrates production-style data engineering and analytics patt
 - **repeatable ETL factory**
 - **churn modeling + causal analysis**
 
-All projects use **synthetic/mock data** so the repos are safe and shareable.
 
 ## Projects
 1) **Audit-Ready Regulatory Reporting Pipeline**  
