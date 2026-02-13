@@ -1,0 +1,69 @@
+# Churn + Causal Analysis
+
+End-to-end ML workflow:
+- synthetic customer behavior data
+- churn model baseline
+- feature importance
+- simple causal estimate for an "intervention" (discount)
+
+import os
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+
+def main():
+    os.makedirs("outputs", exist_ok=True)
+
+    rng = np.random.default_rng(123)
+    n = 5000
+
+    df = pd.DataFrame({
+        "tenure_months": rng.integers(1, 60, n),
+        "avg_monthly_spend": np.round(rng.normal(120, 35, n), 2),
+        "support_tickets": rng.poisson(1.2, n),
+        "discount_offer": rng.integers(0, 2, n),
+    })
+
+    # churn probability (synthetic)
+    logit = (
+        -2.0
+        + 0.02 * (df["support_tickets"])
+        - 0.015 * (df["tenure_months"])
+        + 0.006 * (120 - df["avg_monthly_spend"])
+        - 0.25 * df["discount_offer"]
+    )
+    p = 1 / (1 + np.exp(-logit))
+    df["churned"] = (rng.random(n) < p).astype(int)
+
+    X = df[["tenure_months", "avg_monthly_spend", "support_tickets", "discount_offer"]]
+    y = df["churned"]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+
+    model = LogisticRegression(max_iter=1000)
+    model.fit(X_train, y_train)
+
+    preds = model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, preds)
+
+    # naive causal estimate: uplift (difference in mean churn by discount)
+    churn_no = df[df["discount_offer"] == 0]["churned"].mean()
+    churn_yes = df[df["discount_offer"] == 1]["churned"].mean()
+    uplift = churn_no - churn_yes
+
+    out = {
+        "roc_auc": float(auc),
+        "churn_rate_no_discount": float(churn_no),
+        "churn_rate_with_discount": float(churn_yes),
+        "estimated_uplift": float(uplift),
+        "coefficients": dict(zip(X.columns, model.coef_[0].tolist()))
+    }
+
+    pd.DataFrame([out]).to_csv("outputs/model_summary.csv", index=False)
+    print("Wrote outputs/model_summary.csv")
+    print(out)
+
+if __name__ == "__main__":
+    main()
