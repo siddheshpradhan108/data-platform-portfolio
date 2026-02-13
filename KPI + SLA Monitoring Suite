@@ -8,12 +8,6 @@ Computes operational metrics such as:
 
 Outputs a BI-ready table for dashboards and alerts.
 
-## Run
-```bash
-pip install -r requirements.txt
-python src/simulate_job_runs.py
-python src/compute_metrics.py
-
 
 import os
 import pandas as pd
