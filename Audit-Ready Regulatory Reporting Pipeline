@@ -1,0 +1,114 @@
+# Audit-Ready Regulatory Reporting Pipeline
+
+Simulates a healthcare/finance regulatory reporting workflow:
+- ingestion (synthetic)
+- transformations (Bronze/Silver/Gold)
+- validations (quality gates)
+- final extracts + exception reporting
+
+## Architecture
+- Bronze: raw synthetic source tables
+- Silver: cleaned + conformed tables
+- Gold: report-ready facts + dimensions
+
+## Run
+```bash
+pip install -r requirements.txt
+python src/generate_data.py
+python src/pipeline.py
+python src/validate.py
+
+import os
+import pandas as pd
+import numpy as np
+
+def main():
+    os.makedirs("outputs/bronze", exist_ok=True)
+
+    rng = np.random.default_rng(42)
+    members = pd.DataFrame({
+        "member_id": range(1, 2001),
+        "state": rng.choice(["NY", "NJ", "PA", "CT"], size=2000),
+        "plan": rng.choice(["MEDICAID", "MEDICARE_PD", "COMMERCIAL"], size=2000),
+        "dob": pd.to_datetime("1950-01-01") + pd.to_timedelta(rng.integers(0, 25000, 2000), unit="D"),
+    })
+
+    claims = pd.DataFrame({
+        "claim_id": range(1, 8001),
+        "member_id": rng.integers(1, 2001, 8000),
+        "service_date": pd.to_datetime("2025-01-01") + pd.to_timedelta(rng.integers(0, 365, 8000), unit="D"),
+        "paid_amount": np.round(rng.gamma(2.0, 120.0, 8000), 2),
+        "status": rng.choice(["PAID", "DENIED", "PENDED"], size=8000, p=[0.82, 0.12, 0.06]),
+    })
+
+    members.to_csv("outputs/bronze/members.csv", index=False)
+    claims.to_csv("outputs/bronze/claims.csv", index=False)
+    print("Generated bronze data.")
+
+if __name__ == "__main__":
+    main()
+
+import os
+import pandas as pd
+
+def main():
+    os.makedirs("outputs/silver", exist_ok=True)
+    os.makedirs("outputs/gold", exist_ok=True)
+
+    members = pd.read_csv("outputs/bronze/members.csv", parse_dates=["dob"])
+    claims = pd.read_csv("outputs/bronze/claims.csv", parse_dates=["service_date"])
+
+    # Silver: basic cleansing
+    claims = claims[claims["paid_amount"] >= 0].copy()
+    claims["paid_amount"] = claims["paid_amount"].fillna(0)
+
+    members.to_csv("outputs/silver/members_clean.csv", index=False)
+    claims.to_csv("outputs/silver/claims_clean.csv", index=False)
+
+    # Gold: regulatory extract example
+    gold = claims.merge(members, on="member_id", how="left")
+    gold["year_month"] = gold["service_date"].dt.to_period("M").astype(str)
+
+    extract = (
+        gold.groupby(["year_month", "state", "plan", "status"], as_index=False)
+        .agg(total_paid=("paid_amount", "sum"), claim_count=("claim_id", "count"))
+    )
+
+    extract.to_csv("outputs/gold/regulatory_extract.csv", index=False)
+    print("Built gold extract.")
+
+if __name__ == "__main__":
+    main()
+
+import json
+import os
+import pandas as pd
+
+def main():
+    os.makedirs("outputs/quality", exist_ok=True)
+    os.makedirs("outputs/exceptions", exist_ok=True)
+
+    members = pd.read_csv("outputs/silver/members_clean.csv")
+    claims = pd.read_csv("outputs/silver/claims_clean.csv")
+
+    checks = []
+
+    # Completeness
+    null_members = members["member_id"].isna().sum()
+    checks.append({"check": "members.member_id_not_null", "passed": null_members == 0, "nulls": int(null_members)})
+
+    # Referential integrity
+    missing_members = claims[~claims["member_id"].isin(members["member_id"])]
+    checks.append({"check": "claims.member_id_fk", "passed": len(missing_members) == 0, "missing": int(len(missing_members))})
+
+    if len(missing_members) > 0:
+        missing_members.to_csv("outputs/exceptions/claims_missing_members.csv", index=False)
+
+    report = {"checks": checks, "passed": all(c["passed"] for c in checks)}
+    with open("outputs/quality/validation_report.json", "w") as f:
+        json.dump(report, f, indent=2)
+
+    print("Validation complete:", report["passed"])
+
+if __name__ == "__main__":
+    main()
