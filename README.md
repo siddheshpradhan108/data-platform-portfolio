@@ -1,1 +1,21 @@
 # data-platform-portfolio
+data-platform-portfolio/
+  README.md
+  LICENSE
+  .gitignore
+  CONTRIBUTING.md
+  CODE_OF_CONDUCT.md
+  SECURITY.md
+  .github/
+    ISSUE_TEMPLATE/
+      bug_report.md
+      feature_request.md
+    PULL_REQUEST_TEMPLATE.md
+    workflows/
+      ci.yml
+  projects/
+    01_audit_ready_reg_reporting/
+    02_kpi_sla_monitoring/
+    03_reconciliation_engine/
+    04_pyspark_etl_factory/
+    05_churn_and_causal_analysis/
